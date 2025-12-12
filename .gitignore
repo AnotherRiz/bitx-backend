@@ -12,3 +12,5 @@ bitx-dev
 
 # OS
 .DS_Store
+
+.gitignore
