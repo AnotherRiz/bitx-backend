@@ -1,0 +1,17 @@
+# Go
+/tmp/
+/vendor/
+
+# Runtime data
+/data/*.db
+/data/*.log
+
+# Air
+configs/.air.toml
+
+# Binary
+bitx-server
+bitx-dev
+
+# OS
+.DS_Store

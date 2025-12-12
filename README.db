@@ -1,0 +1,14 @@
+# BitX Backend
+
+Backend service for exporting and importing BitX Sessions.
+
+## Features
+- Export/import via transfer code
+- Expiration
+- Rate limit Export
+- SQLite (temporary storage)
+- HTTPS-ready
+
+## Development
+```bash
+air -c configs/.air.toml
