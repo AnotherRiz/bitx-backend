@@ -12,17 +12,18 @@ type rateInfo struct {
 	ResetTime time.Time
 }
 
+type Limiter struct {
+	Limit  int
+	Window time.Duration
+}
+
 var (
-	rateLimits = make(map[string]*rateInfo)
-	rateMu     sync.Mutex
+	store = make(map[string]*rateInfo)
+	mu    sync.Mutex
 )
 
-const (
-	exportLimit  = 5
-	exportWindow = 1 * time.Hour
-)
-
-func Export(next http.HandlerFunc) http.HandlerFunc {
+// core limiter
+func limit(l Limiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
@@ -30,28 +31,49 @@ func Export(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		key := ip + ":" + r.URL.Path
 		now := time.Now()
 
-		rateMu.Lock()
-		info, exists := rateLimits[ip]
+		mu.Lock()
+		info, exists := store[key]
 
 		if !exists || now.After(info.ResetTime) {
 			info = &rateInfo{
 				Count:     0,
-				ResetTime: now.Add(exportWindow),
+				ResetTime: now.Add(l.Window),
 			}
-			rateLimits[ip] = info
+			store[key] = info
 		}
 
-		if info.Count >= exportLimit {
-			rateMu.Unlock()
+		if info.Count >= l.Limit {
+			mu.Unlock()
 			http.Error(w, "rate limit exceeded", 429)
 			return
 		}
 
 		info.Count++
-		rateMu.Unlock()
+		mu.Unlock()
 
 		next(w, r)
 	}
+}
+
+// ====== public wrappers ======
+
+var ExportLimiter = Limiter{
+	Limit:  5,
+	Window: 1 * time.Hour,
+}
+
+var ImportLimiter = Limiter{
+	Limit:  10,
+	Window: 5 * time.Minute,
+}
+
+func Export(next http.HandlerFunc) http.HandlerFunc {
+	return limit(ExportLimiter, next)
+}
+
+func Import(next http.HandlerFunc) http.HandlerFunc {
+	return limit(ImportLimiter, next)
 }

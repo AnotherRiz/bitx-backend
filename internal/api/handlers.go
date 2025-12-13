@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	codeTTL       = 15 * time.Minute
-	maxPayloadLen = 100 * 1024
+	codeTTL = 15 * time.Minute
 )
 
 func Export(w http.ResponseWriter, r *http.Request) {
@@ -32,9 +31,9 @@ func Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(body.Payload) == 0 || len(body.Payload) > maxPayloadLen {
+	if len(body.Payload) == 0 {
 		logx.Export(r, "INVALID_PAYLOAD")
-		http.Error(w, "invalid payload size", 400)
+		http.Error(w, "empty payload", 400)
 		return
 	}
 
@@ -90,7 +89,7 @@ func Import(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id int
-	var payload string
+	var payloadStr string
 
 	err = tx.QueryRow(`
 		SELECT id, payload FROM transfers
@@ -98,7 +97,7 @@ func Import(w http.ResponseWriter, r *http.Request) {
 		  AND used = 0
 		  AND expires_at > ?`,
 		hash, now,
-	).Scan(&id, &payload)
+	).Scan(&id, &payloadStr)
 
 	if err == sql.ErrNoRows {
 		logx.Import(r, "FAILED", "invalid_or_expired")
@@ -113,8 +112,8 @@ func Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec(`UPDATE transfers SET used = 1 WHERE id = ?`, id)
-	if err != nil {
+	// tandai sebagai used
+	if _, err := tx.Exec(`UPDATE transfers SET used = 1 WHERE id = ?`, id); err != nil {
 		logx.Import(r, "FAILED", "db_error")
 		tx.Rollback()
 		http.Error(w, "db error", 500)
@@ -123,7 +122,36 @@ func Import(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
-	util.WriteJSON(w, json.RawMessage(payload))
+	// ===============================
+	// 🔐 PAYLOAD NORMALIZATION
+	// ===============================
+	raw := []byte(payloadStr)
+
+	// 1. harus JSON valid
+	if !json.Valid(raw) {
+		logx.Import(r, "FAILED", "invalid_payload")
+		http.Error(w, "invalid payload format", 500)
+		return
+	}
+
+	// 2. cek apakah payload adalah string JSON (double encoded)
+	var maybeString string
+	if err := json.Unmarshal(raw, &maybeString); err == nil {
+		// payload ternyata string → decode ulang
+		raw = []byte(maybeString)
+
+		if !json.Valid(raw) {
+			logx.Import(r, "FAILED", "invalid_nested_payload")
+			http.Error(w, "invalid payload format", 500)
+			return
+		}
+	}
+
+	// 3. response konsisten
+	util.WriteJSON(w, map[string]interface{}{
+		"payload": json.RawMessage(raw),
+	})
+
 	logx.Import(r, "OK", "")
 }
 
