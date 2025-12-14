@@ -1,0 +1,11 @@
+services:
+  bitx:
+    image: ghcr.io/anotherriz/bitx-backend:latest
+    ports:
+      - "8844:8844"
+    volumes:
+      - bitx-data:/data
+    restart: unless-stopped
+
+volumes:
+  bitx-data:
